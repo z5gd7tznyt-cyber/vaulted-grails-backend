@@ -39,7 +39,21 @@ const limiter = rateLimit({
     }
 });
 app.use('/api/', limiter);
+// ========== IMPORT ROUTES ==========
+const authRoutes = require('./routes/auth');
+const rafflesRoutes = require('./routes/raffles');
+const ticketsRoutes = require('./routes/tickets');
+const userRoutes = require('./routes/user');
+const adminRoutes = require('./routes/admin');
 
+// ========== MOUNT ROUTES ==========
+app.use('/api/auth', authRoutes);
+app.use('/api/raffles', rafflesRoutes);
+app.use('/api/tickets', ticketsRoutes);
+app.use('/api/user', userRoutes);
+app.use('/api/admin', adminRoutes);
+
+console.log('✅ All routes mounted');
 // ============================================================
 // ROUTES
 // ============================================================
