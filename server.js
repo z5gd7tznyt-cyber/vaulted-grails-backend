@@ -14,7 +14,22 @@ const PORT = process.env.PORT || 5000;
 
 // Enable CORS (Cross-Origin Resource Sharing)
 app.use(cors({
-    origin: process.env.FRONTEND_URL || '*',
+    origin: function(origin, callback) {
+        const allowedOrigins = [
+            'https://vaultgrails.com',
+            'https://www.vaultgrails.com',
+            'http://localhost:3000',
+            'http://localhost:5000'
+        ];
+        // Allow requests with no origin (mobile apps, Postman, etc.)
+        if (!origin) return callback(null, true);
+        
+        if (allowedOrigins.indexOf(origin) !== -1) {
+            callback(null, true);
+        } else {
+            callback(new Error('Not allowed by CORS'));
+        }
+    },
     credentials: true
 }));
 
