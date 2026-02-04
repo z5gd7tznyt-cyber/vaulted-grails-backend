@@ -25,15 +25,18 @@ app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 // Trust Railway proxy
 app.set('trust proxy', 1);
-```
-
-(Change `true` to the number `1`)
 
 // Rate limiting (prevent abuse)
 const limiter = rateLimit({
     windowMs: 15 * 60 * 1000, // 15 minutes
     max: 100, // Max 100 requests per 15 minutes
-    message: 'Too many requests, please try again later.'
+    message: 'Too many requests, please try again later.',
+    standardHeaders: true,
+    legacyHeaders: false,
+    // Use the correct IP from Railway proxy
+    keyGenerator: (req) => {
+        return req.ip || req.headers['x-forwarded-for'] || req.connection.remoteAddress;
+    }
 });
 app.use('/api/', limiter);
 
