@@ -1,12 +1,10 @@
 // ============================================================
 // VAULTED GRAILS BACKEND - MAIN SERVER FILE
 // ============================================================
-
 require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
 const rateLimit = require('express-rate-limit');
-
 const app = express();
 const PORT = process.env.PORT || 5000;
 
@@ -23,6 +21,7 @@ app.use(cors({
 // Parse JSON request bodies
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
+
 // Trust Railway proxy
 app.set('trust proxy', 1);
 
@@ -33,32 +32,24 @@ const limiter = rateLimit({
     message: 'Too many requests, please try again later.',
     standardHeaders: true,
     legacyHeaders: false,
-    // Use the correct IP from Railway proxy
     keyGenerator: (req) => {
         return req.ip || req.headers['x-forwarded-for'] || req.connection.remoteAddress;
     }
 });
 app.use('/api/', limiter);
-// ========== IMPORT ROUTES ==========
+
+// ============================================================
+// IMPORT ROUTES
+// ============================================================
 const authRoutes = require('./routes/auth');
 const rafflesRoutes = require('./routes/raffles');
 const ticketsRoutes = require('./routes/tickets');
 const userRoutes = require('./routes/user');
 const adminRoutes = require('./routes/admin');
 
-// ========== MOUNT ROUTES ==========
-app.use('/api/auth', authRoutes);
-app.use('/api/raffles', rafflesRoutes);
-app.use('/api/tickets', ticketsRoutes);
-app.use('/api/user', userRoutes);
-app.use('/api/admin', adminRoutes);
-
-console.log('✅ All routes mounted');
 // ============================================================
-// ROUTES
+// HEALTH CHECK (before route mounting)
 // ============================================================
-
-// Health check endpoint
 app.get('/api/health', (req, res) => {
     res.json({ 
         status: 'healthy', 
@@ -67,20 +58,16 @@ app.get('/api/health', (req, res) => {
     });
 });
 
-// Authentication routes (signup/login)
-app.use('/api/auth', require('./routes/auth'));
+// ============================================================
+// MOUNT ROUTES
+// ============================================================
+app.use('/api/auth', authRoutes);
+app.use('/api/raffles', rafflesRoutes);
+app.use('/api/tickets', ticketsRoutes);
+app.use('/api/user', userRoutes);
+app.use('/api/admin', adminRoutes);
 
-// Raffle routes (browse/enter raffles)
-app.use('/api/raffles', require('./routes/raffles'));
-
-// Ticket routes (buy/use tickets)
-app.use('/api/tickets', require('./routes/tickets'));
-
-// User routes (profile/settings)
-app.use('/api/user', require('./routes/user'));
-
-// Admin routes (manage raffles/users)
-app.use('/api/admin', require('./routes/admin'));
+console.log('✅ All routes mounted successfully');
 
 // ============================================================
 // ERROR HANDLING
@@ -106,7 +93,6 @@ app.use((err, req, res, next) => {
 // ============================================================
 // START SERVER
 // ============================================================
-
 app.listen(PORT, '0.0.0.0', () => {
     console.log(`
     ╔══════════════════════════════════════════╗
