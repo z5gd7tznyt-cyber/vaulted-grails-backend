@@ -24,7 +24,10 @@ app.use(cors({
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 // Trust Railway proxy
-app.set('trust proxy', true);
+app.set('trust proxy', 1);
+```
+
+(Change `true` to the number `1`)
 
 // Rate limiting (prevent abuse)
 const limiter = rateLimit({
