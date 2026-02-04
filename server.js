@@ -23,6 +23,8 @@ app.use(cors({
 // Parse JSON request bodies
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
+// Trust Railway proxy
+app.set('trust proxy', true);
 
 // Rate limiting (prevent abuse)
 const limiter = rateLimit({
