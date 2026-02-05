@@ -119,7 +119,90 @@ router.get('/entries', authenticate, async (req, res) => {
         });
     }
 });
+// ============================================================
+// GET ACTIVE ENTRIES (for dashboard)
+// ============================================================
 
+router.get('/entries/active', authenticate, async (req, res) => {
+    try {
+        const userId = req.user.id;
+        
+        const { data: entries, error } = await supabase
+            .from('raffle_entries')
+            .select(`
+                id,
+                ticket_count,
+                entered_at,
+                raffles!inner (
+                    id,
+                    title,
+                    image_url,
+                    value,
+                    draw_date,
+                    status
+                )
+            `)
+            .eq('user_id', userId)
+            .eq('raffles.status', 'active')
+            .order('entered_at', { ascending: false });
+        
+        if (error) throw error;
+        
+        res.json({
+            count: entries.length,
+            entries
+        });
+        
+    } catch (error) {
+        console.error('Get active entries error:', error);
+        res.status(500).json({ 
+            error: 'Failed to get active entries' 
+        });
+    }
+});
+
+// ============================================================
+// GET USER WINS (for dashboard)
+// ============================================================
+
+router.get('/wins', authenticate, async (req, res) => {
+    try {
+        const userId = req.user.id;
+        
+        // Query raffle_entries where this user won
+        const { data: wins, error } = await supabase
+            .from('raffle_entries')
+            .select(`
+                id,
+                ticket_count,
+                entered_at,
+                raffles (
+                    id,
+                    title,
+                    image_url,
+                    value,
+                    draw_date,
+                    winner_id
+                )
+            `)
+            .eq('user_id', userId)
+            .eq('raffles.winner_id', userId)
+            .order('entered_at', { ascending: false });
+        
+        if (error) throw error;
+        
+        res.json({
+            count: wins.length,
+            wins
+        });
+        
+    } catch (error) {
+        console.error('Get wins error:', error);
+        res.status(500).json({ 
+            error: 'Failed to get wins' 
+        });
+    }
+});
 // ============================================================
 // GET TRANSACTION HISTORY
 // ============================================================
