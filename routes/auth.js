@@ -3,6 +3,7 @@
 // ============================================================
 // POST /api/auth/register - Create new account
 // POST /api/auth/login - Login to existing account
+// POST /api/auth/check-username - Check if username is available
 // ============================================================
 
 const express = require('express');
@@ -13,11 +14,75 @@ const { body, validationResult } = require('express-validator');
 const { supabase, exists } = require('../utils/supabase');
 
 // ============================================================
+// CHECK USERNAME AVAILABILITY
+// ============================================================
+
+router.post('/check-username', async (req, res) => {
+    try {
+        const { username } = req.body;
+        
+        // Validate username format
+        if (!username || typeof username !== 'string') {
+            return res.json({ 
+                available: false, 
+                error: 'Username is required' 
+            });
+        }
+        
+        const trimmedUsername = username.trim().toLowerCase();
+        
+        // Check length
+        if (trimmedUsername.length < 3 || trimmedUsername.length > 20) {
+            return res.json({ 
+                available: false, 
+                error: 'Username must be 3-20 characters' 
+            });
+        }
+        
+        // Check format (letters, numbers, underscores only)
+        if (!/^[a-z0-9_]+$/.test(trimmedUsername)) {
+            return res.json({ 
+                available: false, 
+                error: 'Username can only contain letters, numbers, and underscores' 
+            });
+        }
+        
+        // Check if username is taken
+        const { data, error } = await supabase
+            .from('users')
+            .select('username')
+            .ilike('username', trimmedUsername)
+            .maybeSingle();
+        
+        if (error) {
+            console.error('Error checking username:', error);
+            throw error;
+        }
+        
+        // If data exists, username is taken
+        const available = !data;
+        
+        res.json({ 
+            available,
+            username: trimmedUsername 
+        });
+        
+    } catch (error) {
+        console.error('Check username error:', error);
+        res.status(500).json({ 
+            available: false,
+            error: 'Failed to check username availability' 
+        });
+    }
+});
+
+// ============================================================
 // REGISTER NEW USER
 // ============================================================
 
 router.post('/register', [
     // Validation rules
+    body('username').trim().isLength({ min: 3, max: 20 }),
     body('email').isEmail().normalizeEmail(),
     body('password').isLength({ min: 8 }),
     body('firstName').trim().notEmpty(),
@@ -34,7 +99,24 @@ router.post('/register', [
             });
         }
         
-        const { email, password, firstName, lastName, dateOfBirth } = req.body;
+        const { username, email, password, firstName, lastName, dateOfBirth } = req.body;
+        
+        const trimmedUsername = username.trim().toLowerCase();
+        
+        // Validate username format
+        if (!/^[a-z0-9_]+$/.test(trimmedUsername)) {
+            return res.status(400).json({ 
+                error: 'Username can only contain letters, numbers, and underscores' 
+            });
+        }
+        
+        // Check if username is taken
+        const usernameExists = await exists('users', { username: trimmedUsername });
+        if (usernameExists) {
+            return res.status(409).json({ 
+                error: 'Username already taken' 
+            });
+        }
         
         // Check if user already exists
         const userExists = await exists('users', { email });
@@ -59,6 +141,7 @@ router.post('/register', [
         const { data: user, error } = await supabase
             .from('users')
             .insert({
+                username: trimmedUsername,
                 email,
                 password_hash: passwordHash,
                 first_name: firstName,
@@ -85,6 +168,7 @@ router.post('/register', [
             token,
             user: {
                 id: user.id,
+                username: user.username,
                 email: user.email,
                 firstName: user.first_name,
                 lastName: user.last_name,
@@ -161,6 +245,7 @@ router.post('/login', [
             token,
             user: {
                 id: user.id,
+                username: user.username,
                 email: user.email,
                 firstName: user.first_name,
                 lastName: user.last_name,
