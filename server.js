@@ -18,15 +18,24 @@ app.use(cors({
         const allowedOrigins = [
             'https://vaultgrails.com',
             'https://www.vaultgrails.com',
+            'https://vaulted-grails.vercel.app',  // ← ADD THIS!
             'http://localhost:3000',
+            'http://localhost:5173',
             'http://localhost:5000'
         ];
+        
         // Allow requests with no origin (mobile apps, Postman, etc.)
         if (!origin) return callback(null, true);
+        
+        // IMPORTANT: Allow ALL Vercel preview deployments
+        if (origin && origin.includes('.vercel.app')) {
+            return callback(null, true);
+        }
         
         if (allowedOrigins.indexOf(origin) !== -1) {
             callback(null, true);
         } else {
+            console.log('❌ CORS blocked origin:', origin);
             callback(new Error('Not allowed by CORS'));
         }
     },
