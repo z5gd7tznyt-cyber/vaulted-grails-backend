@@ -1,7 +1,8 @@
 // ============================================================
-// RAFFLE ROUTES
+// RAFFLE ROUTES - FRONTEND COMPATIBLE
 // ============================================================
-// GET /api/raffles/active - Get all active raffles
+// GET /api/raffles - Get all raffles (supports ?status=live|active)
+// GET /api/raffles/active - Get active raffles (alias)
 // GET /api/raffles/:id - Get single raffle details
 // POST /api/raffles/:id/enter - Enter a raffle (requires auth)
 // ============================================================
@@ -11,19 +12,50 @@ const router = express.Router();
 const { supabase } = require('../utils/supabase');
 const { authenticate } = require('../middleware/auth');
 
+// Helper function to calculate time remaining
+function calculateTimeRemaining(drawDate) {
+    const now = new Date();
+    const end = new Date(drawDate);
+    const diff = end - now;
+    
+    if (diff <= 0) return 'Ended';
+    
+    const days = Math.floor(diff / (1000 * 60 * 60 * 24));
+    const hours = Math.floor((diff % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
+    const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
+    
+    return `${days}d ${hours}h ${minutes}m`;
+}
+
+// Helper function to get category emoji
+function getCategoryEmoji(category) {
+    const emojis = {
+        basketball: '🏀',
+        pokemon: '🔥',
+        onepiece: '⚓',
+        baseball: '⚾',
+        football: '🏈',
+        hockey: '🏒'
+    };
+    return emojis[category] || '🏆';
+}
+
 // ============================================================
-// GET ALL ACTIVE RAFFLES
+// GET ALL RAFFLES (frontend compatible)
 // ============================================================
 
-router.get('/active', async (req, res) => {
+const getRaffles = async (req, res) => {
     try {
-        const { category, featured, limit = 100 } = req.query;
+        const { status = 'active', category, featured, limit = 100 } = req.query;
+        
+        // Support both "live" (frontend) and "active" (backend)
+        const raffleStatus = status === 'live' ? 'active' : status;
         
         let query = supabase
             .from('raffles')
             .select('*')
-            .eq('status', 'active')
-            .gt('draw_date', new Date().toISOString()) // Only future draws
+            .eq('status', raffleStatus)
+            .gt('draw_date', new Date().toISOString())
             .order('draw_date', { ascending: true })
             .limit(parseInt(limit));
         
@@ -41,10 +73,29 @@ router.get('/active', async (req, res) => {
         
         if (error) throw error;
         
-        res.json({
-            count: raffles.length,
-            raffles
-        });
+        // Format for frontend compatibility
+        const formattedRaffles = raffles.map(raffle => ({
+            id: raffle.id,
+            title: raffle.title,
+            description: raffle.description,
+            value: raffle.value,
+            emoji: getCategoryEmoji(raffle.category),
+            grade: raffle.grade,
+            cert_number: raffle.cert_number || null,
+            year: raffle.year,
+            category: raffle.category,
+            bg_gradient: raffle.bg_gradient || 'linear-gradient(135deg, rgba(212,175,55,0.2), rgba(238,49,36,0.1))',
+            total_tickets: raffle.total_entries || 0,
+            total_entries: raffle.total_entries || 0,
+            status: raffle.status,
+            end_date: raffle.draw_date,
+            draw_date: raffle.draw_date,
+            time_remaining: calculateTimeRemaining(raffle.draw_date),
+            image_url: raffle.image_url,
+            featured: raffle.featured
+        }));
+        
+        res.json(formattedRaffles);
         
     } catch (error) {
         console.error('Get raffles error:', error);
@@ -52,147 +103,7 @@ router.get('/active', async (req, res) => {
             error: 'Failed to fetch raffles' 
         });
     }
-});
+};
 
-// ============================================================
-// GET SINGLE RAFFLE BY ID
-// ============================================================
-
-router.get('/:id', async (req, res) => {
-    try {
-        const { id } = req.params;
-        
-        const { data: raffle, error } = await supabase
-            .from('raffles')
-            .select('*')
-            .eq('id', id)
-            .single();
-        
-        if (error || !raffle) {
-            return res.status(404).json({ 
-                error: 'Raffle not found' 
-            });
-        }
-        
-        res.json({ raffle });
-        
-    } catch (error) {
-        console.error('Get raffle error:', error);
-        res.status(500).json({ 
-            error: 'Failed to fetch raffle' 
-        });
-    }
-});
-
-// ============================================================
-// ENTER RAFFLE (requires authentication)
-// ============================================================
-
-router.post('/:id/enter', authenticate, async (req, res) => {
-    try {
-        const { id: raffleId } = req.params;
-        const { ticketCount } = req.body;
-        const userId = req.user.id;
-        
-        // Validate ticket count
-        if (!ticketCount || ticketCount < 1) {
-            return res.status(400).json({ 
-                error: 'Invalid ticket count' 
-            });
-        }
-        
-        // Get raffle
-        const { data: raffle, error: raffleError } = await supabase
-            .from('raffles')
-            .select('*')
-            .eq('id', raffleId)
-            .single();
-        
-        if (raffleError || !raffle) {
-            return res.status(404).json({ 
-                error: 'Raffle not found' 
-            });
-        }
-        
-        // Check raffle status
-        if (raffle.status !== 'active') {
-            return res.status(400).json({ 
-                error: 'Raffle is not active' 
-            });
-        }
-        
-        // Check if draw date has passed
-        if (new Date(raffle.draw_date) < new Date()) {
-            return res.status(400).json({ 
-                error: 'Raffle has ended' 
-            });
-        }
-        
-        // Check minimum tickets
-        if (ticketCount < raffle.min_tickets) {
-            return res.status(400).json({ 
-                error: `Minimum ${raffle.min_tickets} tickets required` 
-            });
-        }
-        
-        // Get user's current balance
-        const { data: user, error: userError } = await supabase
-            .from('users')
-            .select('ticket_balance')
-            .eq('id', userId)
-            .single();
-        
-        if (userError || !user) {
-            return res.status(404).json({ 
-                error: 'User not found' 
-            });
-        }
-        
-        // Check if user has enough tickets
-        if (user.ticket_balance < ticketCount) {
-            return res.status(400).json({ 
-                error: 'Insufficient ticket balance',
-                required: ticketCount,
-                available: user.ticket_balance
-            });
-        }
-        
-        // Create entry (triggers will auto-update totals and deduct tickets)
-        const { data: entry, error: entryError } = await supabase
-            .from('raffle_entries')
-            .insert({
-                user_id: userId,
-                raffle_id: raffleId,
-                ticket_count: ticketCount
-            })
-            .select()
-            .single();
-        
-        if (entryError) throw entryError;
-        
-        // Get updated user balance
-        const { data: updatedUser } = await supabase
-            .from('users')
-            .select('ticket_balance')
-            .eq('id', userId)
-            .single();
-        
-        res.json({
-            message: 'Successfully entered raffle!',
-            entry: {
-                id: entry.id,
-                ticketCount: entry.ticket_count,
-                enteredAt: entry.entered_at
-            },
-            newBalance: updatedUser.ticket_balance
-        });
-        
-    } catch (error) {
-        console.error('Enter raffle error:', error);
-        res.status(500).json({ 
-            error: 'Failed to enter raffle' 
-        });
-    }
-});
-
-module.exports = router;
+// Support both endpoints
+router
