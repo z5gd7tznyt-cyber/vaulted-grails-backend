@@ -18,7 +18,7 @@ app.use(cors({
         const allowedOrigins = [
             'https://vaultgrails.com',
             'https://www.vaultgrails.com',
-            'https://vaulted-grails.vercel.app',  // ← ADD THIS!
+            'https://vaulted-grails.vercel.app',
             'http://localhost:3000',
             'http://localhost:5173',
             'http://localhost:5000'
