@@ -265,7 +265,7 @@ async function handleSubscriptionUpdate(subscription) {
         .from('ticket_transactions')
         .insert([{
           user_id: userId,
-          amount: 100,
+          amount: 500,
           type: 'subscription',
           description: 'Monthly Vault Access bonus tickets'
         }]);
