@@ -261,5 +261,111 @@ router.post('/login', [
         });
     }
 });
-
+// Add signup alias for frontend compatibility
+router.post('/signup', [
+    body('username').optional().trim().isLength({ min: 3, max: 20 }),
+    body('email').isEmail().normalizeEmail(),
+    body('password').isLength({ min: 8 }),
+    body('firstName').optional().trim(),
+    body('lastName').optional().trim(),
+    body('dateOfBirth').optional().isISO8601().toDate()
+], async (req, res) => {
+    try {
+        const errors = validationResult(req);
+        if (!errors.isEmpty()) {
+            return res.status(400).json({ 
+                error: 'Invalid input',
+                details: errors.array()
+            });
+        }
+        
+        const { username, email, password, firstName, lastName, dateOfBirth } = req.body;
+        
+        // Generate username from email if not provided
+        const finalUsername = username ? username.trim().toLowerCase() : email.split('@')[0].toLowerCase();
+        
+        // Validate username format
+        if (!/^[a-z0-9_]+$/.test(finalUsername)) {
+            return res.status(400).json({ 
+                error: 'Username can only contain letters, numbers, and underscores' 
+            });
+        }
+        
+        // Check if username is taken
+        const usernameExists = await exists('users', { username: finalUsername });
+        if (usernameExists) {
+            return res.status(409).json({ 
+                error: 'Username already taken' 
+            });
+        }
+        
+        // Check if email already registered
+        const userExists = await exists('users', { email });
+        if (userExists) {
+            return res.status(409).json({ 
+                error: 'Email already registered' 
+            });
+        }
+        
+        // Check age if provided (must be 18+)
+        if (dateOfBirth) {
+            const age = Math.floor((new Date() - new Date(dateOfBirth)) / 31557600000);
+            if (age < 18) {
+                return res.status(400).json({ 
+                    error: 'Must be 18 or older to register' 
+                });
+            }
+        }
+        
+        // Hash password
+        const passwordHash = await bcrypt.hash(password, 10);
+        
+        // Create user
+        const { data: user, error } = await supabase
+            .from('users')
+            .insert({
+                username: finalUsername,
+                email,
+                password_hash: passwordHash,
+                first_name: firstName || null,
+                last_name: lastName || null,
+                date_of_birth: dateOfBirth || null,
+                ticket_balance: 0,
+                subscription_status: 'free'
+            })
+            .select()
+            .single();
+        
+        if (error) throw error;
+        
+        // Create JWT token
+        const token = jwt.sign(
+            { userId: user.id },
+            process.env.JWT_SECRET,
+            { expiresIn: '30d' }
+        );
+        
+        // Return user data (frontend compatible format)
+        res.status(201).json({
+            message: 'Account created successfully',
+            token,
+            user: {
+                id: user.id,
+                username: user.username,
+                email: user.email,
+                firstName: user.first_name,
+                lastName: user.last_name,
+                tickets: user.ticket_balance, // Frontend expects "tickets"
+                isPremium: user.subscription_status === 'premium',
+                subscriptionStatus: user.subscription_status
+            }
+        });
+        
+    } catch (error) {
+        console.error('Signup error:', error);
+        res.status(500).json({ 
+            error: 'Failed to create account' 
+        });
+    }
+});
 module.exports = router;
