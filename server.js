@@ -69,6 +69,7 @@ const userRoutes = require('./routes/user');
 const adsRoutes = require('./routes/ads');
 const ticketsRoutes = require('./routes/tickets');
 const adminRoutes = require('./routes/admin');
+const paymentsRoutes = require('./routes/payments');
 
 app.use('/api/auth', authRoutes);
 app.use('/api/raffles', rafflesRoutes);
