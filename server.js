@@ -77,6 +77,7 @@ app.use('/api/user', userRoutes);
 app.use('/api/ads', adsRoutes);
 app.use('/api/tickets', ticketsRoutes);
 app.use('/api/admin', adminRoutes);
+app.use('/api/payments', paymentsRoutes);
 
 console.log('✅ All routes mounted successfully');
 
