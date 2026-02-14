@@ -9,11 +9,13 @@ const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key-change-this';
 // POST /api/auth/signup
 router.post('/signup', async (req, res) => {
   try {
-    const { email, password, username } = req.body;
+    const { email, password, username, first_name, last_name } = req.body;
 
     if (!email || !password) {
       return res.status(400).json({ error: 'Email and password required' });
     }
+
+    console.log('📝 Signup attempt:', email);
 
     // Check if user exists
     const { data: existing } = await supabase
@@ -23,27 +25,34 @@ router.post('/signup', async (req, res) => {
       .single();
 
     if (existing) {
+      console.log('❌ Email already exists');
       return res.status(400).json({ error: 'Email already registered' });
     }
 
     // Hash password
     const hashedPassword = await bcrypt.hash(password, 10);
 
-    // Create user - IMPORTANT: subscription_status will default to 'free'
-    // DO NOT give tickets or premium status on signup!
+    // Create user - NO TICKETS, NO PREMIUM!
     const { data: user, error } = await supabase
       .from('users')
       .insert([{
         email: email.toLowerCase(),
         password: hashedPassword,
         username: username || email.split('@')[0],
-        subscription_status: 'free' // ✅ EXPLICITLY SET TO FREE
-        // DO NOT add tickets here!
+        first_name: first_name || null,
+        last_name: last_name || null,
+        subscription_status: 'free' // ✅ ALWAYS FREE on signup
       }])
       .select()
       .single();
 
-    if (error) throw error;
+    if (error) {
+      console.error('❌ Signup error:', error);
+      throw error;
+    }
+
+    console.log('✅ User created:', user.id, user.email);
+    console.log('⚠️ NO tickets granted (free account)');
 
     // Create JWT
     const token = jwt.sign(
@@ -60,12 +69,12 @@ router.post('/signup', async (req, res) => {
         id: user.id,
         email: user.email,
         username: user.username,
-        subscription_status: 'free' // ✅ Return free status
+        subscription_status: 'free'
       }
     });
 
   } catch (error) {
-    console.error('Signup error:', error);
+    console.error('❌ Signup error:', error);
     res.status(500).json({ error: 'Signup failed' });
   }
 });
@@ -75,6 +84,8 @@ router.post('/login', async (req, res) => {
   try {
     const { email, password } = req.body;
 
+    console.log('🔐 Login attempt:', email);
+
     // Get user
     const { data: user, error } = await supabase
       .from('users')
@@ -83,14 +94,18 @@ router.post('/login', async (req, res) => {
       .single();
 
     if (error || !user) {
+      console.log('❌ User not found');
       return res.status(401).json({ error: 'Invalid credentials' });
     }
 
     // Check password
     const validPassword = await bcrypt.compare(password, user.password);
     if (!validPassword) {
+      console.log('❌ Invalid password');
       return res.status(401).json({ error: 'Invalid credentials' });
     }
+
+    console.log('✅ Login successful:', user.id, user.email);
 
     // Create JWT
     const token = jwt.sign(
@@ -111,7 +126,7 @@ router.post('/login', async (req, res) => {
     });
 
   } catch (error) {
-    console.error('Login error:', error);
+    console.error('❌ Login error:', error);
     res.status(500).json({ error: 'Login failed' });
   }
 });
