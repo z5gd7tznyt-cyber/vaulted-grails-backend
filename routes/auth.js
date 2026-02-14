@@ -37,11 +37,11 @@ router.post('/signup', async (req, res) => {
       .from('users')
       .insert([{
         email: email.toLowerCase(),
-        password: hashedPassword,
+        password_hash: hashedPassword, // ✅ CORRECT COLUMN NAME
         username: username || email.split('@')[0],
         first_name: first_name || null,
         last_name: last_name || null,
-        subscription_status: 'free' // ✅ ALWAYS FREE on signup
+        subscription_status: 'free'
       }])
       .select()
       .single();
@@ -52,7 +52,6 @@ router.post('/signup', async (req, res) => {
     }
 
     console.log('✅ User created:', user.id, user.email);
-    console.log('⚠️ NO tickets granted (free account)');
 
     // Create JWT
     const token = jwt.sign(
@@ -86,10 +85,10 @@ router.post('/login', async (req, res) => {
 
     console.log('🔐 Login attempt:', email);
 
-    // Get user
+    // Get user - SELECT password_hash!
     const { data: user, error } = await supabase
       .from('users')
-      .select('*')
+      .select('id, email, username, subscription_status, password_hash') // ✅ CORRECT COLUMN
       .eq('email', email.toLowerCase())
       .single();
 
@@ -98,8 +97,16 @@ router.post('/login', async (req, res) => {
       return res.status(401).json({ error: 'Invalid credentials' });
     }
 
+    console.log('✅ User found:', user.email);
+
+    // Check if password_hash exists
+    if (!user.password_hash) {
+      console.error('❌ No password hash in database for user:', user.email);
+      return res.status(500).json({ error: 'Account setup incomplete. Please contact support.' });
+    }
+
     // Check password
-    const validPassword = await bcrypt.compare(password, user.password);
+    const validPassword = await bcrypt.compare(password, user.password_hash); // ✅ CORRECT FIELD
     if (!validPassword) {
       console.log('❌ Invalid password');
       return res.status(401).json({ error: 'Invalid credentials' });
