@@ -1,52 +1,53 @@
 const jwt = require('jsonwebtoken');
-const { supabase } = require('../utils/supabase');
 
-async function authenticate(req, res, next) {
+const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key-change-this';
+
+// Authenticate middleware
+function authenticate(req, res, next) {
   try {
+    // Get token from Authorization header
     const authHeader = req.headers.authorization;
     
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
-      return res.status(401).json({ error: 'No token provided. Please login.' });
+    if (!authHeader) {
+      console.log('❌ No authorization header');
+      return res.status(401).json({ error: 'No authorization token provided' });
     }
-    
-    const token = authHeader.split(' ')[1];
-    
+
+    // Extract token (format: "Bearer TOKEN")
+    const token = authHeader.startsWith('Bearer ') 
+      ? authHeader.substring(7) 
+      : authHeader;
+
+    if (!token) {
+      console.log('❌ No token found');
+      return res.status(401).json({ error: 'Invalid authorization format' });
+    }
+
     // Verify token
-    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    const decoded = jwt.verify(token, JWT_SECRET);
     
-    // Get user from database
-    const { data: user, error } = await supabase
-      .from('users')
-      .select('*')
-      .eq('id', decoded.userId)
-      .single();
-    
-    if (error || !user) {
-      return res.status(401).json({ error: 'User not found. Please login again.' });
-    }
-    
-    // Attach user to request
+    // CRITICAL: Set user on request object
     req.user = {
-      id: user.id,
-      email: user.email,
-      username: user.username,
-      ticketBalance: user.ticket_balance,
-      subscriptionStatus: user.subscription_status,
-      isPremium: user.subscription_status === 'premium'
+      id: decoded.id,
+      email: decoded.email
     };
+
+    console.log('✅ Authenticated user:', req.user.id, req.user.email);
     
     next();
+    
   } catch (error) {
+    console.error('❌ Authentication error:', error.message);
+    
     if (error.name === 'JsonWebTokenError') {
-      return res.status(401).json({ error: 'Invalid token. Please login again.' });
+      return res.status(401).json({ error: 'Invalid token' });
     }
     
     if (error.name === 'TokenExpiredError') {
-      return res.status(401).json({ error: 'Token expired. Please login again.' });
+      return res.status(401).json({ error: 'Token expired' });
     }
     
-    console.error('Auth middleware error:', error);
-    return res.status(500).json({ error: 'Authentication failed.' });
+    return res.status(401).json({ error: 'Authentication failed' });
   }
 }
 
