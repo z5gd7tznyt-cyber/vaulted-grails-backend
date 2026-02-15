@@ -1,166 +1,298 @@
 const express = require('express');
 const router = express.Router();
-const { authenticate } = require('../middleware/auth');
+const bcrypt = require('bcrypt');
+const jwt = require('jsonwebtoken');
+const crypto = require('crypto');
 const { supabase } = require('../utils/supabase');
 
-// GET /api/user/profile
-// Get user profile with all stats
-router.get('/profile', authenticate, async (req, res) => {
+const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key-change-this';
+const FRONTEND_URL = process.env.FRONTEND_URL || 'https://vaultgrails.com';
+
+// ============================================================
+// POST /api/auth/signup
+// ============================================================
+router.post('/signup', async (req, res) => {
   try {
-    const userId = req.user.id;
-    
-    console.log('👤 Fetching profile for user ID:', userId);
-    
-    // Get user data
-    const { data: user, error: userError } = await supabase
-      .from('users')
-      .select('*')
-      .eq('id', userId)
-      .single();
-    
-    if (userError || !user) {
-      console.error('❌ User not found:', userError);
-      return res.status(404).json({ error: 'User not found' });
+    const { email, password, username, first_name, last_name } = req.body;
+
+    console.log('📝 Signup attempt:', email);
+
+    if (!email || !password) {
+      return res.status(400).json({ error: 'Email and password required' });
     }
-    
-    console.log('✅ Found user:', user.email);
-    
-    // Calculate ticket balance
-    const { data: transactions } = await supabase
-      .from('ticket_transactions')
-      .select('amount')
-      .eq('user_id', userId);
-    
-    const ticketBalance = transactions && transactions.length > 0
-      ? transactions.reduce((sum, t) => sum + (t.amount || 0), 0)
-      : 0;
-    
-    console.log('💰 User ticket balance:', ticketBalance);
-    
-    // Get active entries
-    const { data: entries } = await supabase
-      .from('raffle_entries')
-      .select('id')
-      .eq('user_id', userId);
-    
-    const activeEntries = entries ? entries.length : 0;
-    
-    console.log('🎰 User active entries:', activeEntries);
-    
-    // Calculate and update streak
-    const streak = await calculateStreak(userId);
-    
-    // Return user data
-    res.json({
-      id: user.id,
-      email: user.email,
-      username: user.username,
-      created_at: user.created_at,
-      subscription_status: user.subscription_status || 'free',
-      ticket_balance: ticketBalance,
-      active_entries: activeEntries,
-      total_wins: 0, // TODO: Calculate from wins table
-      streak: streak
-    });
-    
-  } catch (error) {
-    console.error('❌ Profile error:', error);
-    res.status(500).json({ error: 'Failed to fetch profile' });
-  }
-});
 
-// GET /api/user/streak
-// Get and update user's daily streak
-router.get('/streak', authenticate, async (req, res) => {
-  try {
-    const userId = req.user.id;
-    const streak = await calculateStreak(userId);
-    
-    res.json({ streak });
-    
-  } catch (error) {
-    console.error('❌ Streak error:', error);
-    res.status(500).json({ error: 'Failed to fetch streak' });
-  }
-});
+    if (password.length < 6) {
+      return res.status(400).json({ error: 'Password must be at least 6 characters' });
+    }
 
-// Helper function to calculate and update streak
-async function calculateStreak(userId) {
-  try {
-    // Get user's current streak data
-    const { data: user } = await supabase
+    // Check if user exists
+    const { data: existing } = await supabase
       .from('users')
-      .select('streak_count, last_visit_date')
-      .eq('id', userId)
+      .select('id, email')
+      .eq('email', email.toLowerCase())
       .single();
+
+    if (existing) {
+      console.log('❌ Email already exists');
+      return res.status(400).json({ error: 'Email already registered' });
+    }
+
+    // Hash password
+    const hashedPassword = await bcrypt.hash(password, 10);
+
+    // Generate verification token
+    const verificationToken = crypto.randomBytes(32).toString('hex');
+    const tokenExpires = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24 hours
+
+    // Create user - NOT VERIFIED YET
+    const { data: user, error } = await supabase
+      .from('users')
+      .insert([{
+        email: email.toLowerCase(),
+        password_hash: hashedPassword,
+        username: username || email.split('@')[0],
+        first_name: first_name || null,
+        last_name: last_name || null,
+        subscription_status: 'free',
+        email_verified: false,
+        verification_token: verificationToken,
+        verification_token_expires: tokenExpires.toISOString()
+      }])
+      .select()
+      .single();
+
+    if (error) {
+      console.error('❌ Signup error:', error);
+      throw error;
+    }
+
+    console.log('✅ User created:', user.id, user.email);
+
+    // Send verification email (using Resend or console log for now)
+    const verificationLink = `${FRONTEND_URL}/verify-email.html?token=${verificationToken}`;
     
-    if (!user) return 0;
-    
-    const today = new Date().toISOString().split('T')[0];
-    const lastVisit = user.last_visit_date;
-    
-    let streakCount = user.streak_count || 0;
-    
-    // Only update if this is a new day
-    if (lastVisit !== today) {
-      const yesterday = new Date(Date.now() - 86400000).toISOString().split('T')[0];
-      
-      if (lastVisit === yesterday) {
-        // Consecutive day - increment streak
-        streakCount += 1;
-      } else if (!lastVisit || lastVisit < yesterday) {
-        // Missed a day or first visit - reset to 1
-        streakCount = 1;
+    console.log('📧 VERIFICATION EMAIL:');
+    console.log('To:', email);
+    console.log('Link:', verificationLink);
+    console.log('(Set up Resend to actually send emails)');
+
+    // TODO: Uncomment when Resend is set up
+    // await sendVerificationEmail(email, verificationToken);
+
+    // Create JWT (user can login but has limited access until verified)
+    const token = jwt.sign(
+      { id: user.id, email: user.email },
+      JWT_SECRET,
+      { expiresIn: '30d' }
+    );
+
+    res.json({
+      success: true,
+      message: 'Account created! Please check your email to verify your account.',
+      token,
+      user: {
+        id: user.id,
+        email: user.email,
+        username: user.username,
+        email_verified: false
+      },
+      verificationLink: verificationLink // For testing - remove in production
+    });
+
+  } catch (error) {
+    console.error('❌ Signup error:', error);
+    res.status(500).json({ error: 'Signup failed. Please try again.' });
+  }
+});
+
+// ============================================================
+// POST /api/auth/login
+// ============================================================
+router.post('/login', async (req, res) => {
+  try {
+    const { email, password } = req.body;
+
+    console.log('🔐 Login attempt:', email);
+
+    // Get user
+    const { data: user, error } = await supabase
+      .from('users')
+      .select('id, email, username, subscription_status, password_hash, email_verified')
+      .eq('email', email.toLowerCase())
+      .single();
+
+    if (error || !user) {
+      console.log('❌ User not found');
+      return res.status(401).json({ error: 'Invalid credentials' });
+    }
+
+    console.log('✅ User found:', user.email);
+
+    // Check if password_hash exists
+    if (!user.password_hash) {
+      console.error('❌ No password hash for user:', user.email);
+      return res.status(500).json({ error: 'Account error. Please contact support.' });
+    }
+
+    // Check password
+    const validPassword = await bcrypt.compare(password, user.password_hash);
+    if (!validPassword) {
+      console.log('❌ Invalid password');
+      return res.status(401).json({ error: 'Invalid credentials' });
+    }
+
+    console.log('✅ Login successful:', user.id, user.email);
+
+    // Create JWT
+    const token = jwt.sign(
+      { id: user.id, email: user.email },
+      JWT_SECRET,
+      { expiresIn: '30d' }
+    );
+
+    res.json({
+      success: true,
+      token,
+      user: {
+        id: user.id,
+        email: user.email,
+        username: user.username,
+        subscription_status: user.subscription_status || 'free',
+        email_verified: user.email_verified || false
       }
-      
-      // Update database
-      await supabase
-        .from('users')
-        .update({
-          streak_count: streakCount,
-          last_visit_date: today
-        })
-        .eq('id', userId);
-      
-      console.log(`🔥 Updated streak for user ${userId}: Day ${streakCount}`);
-    }
-    
-    return streakCount;
-    
-  } catch (error) {
-    console.error('Error calculating streak:', error);
-    return 0;
-  }
-}
-
-// GET /api/user/tickets
-// Get ticket transaction history
-router.get('/tickets', authenticate, async (req, res) => {
-  try {
-    const userId = req.user.id;
-    
-    console.log('🎫 Fetching tickets for user:', userId);
-    
-    const { data: transactions, error } = await supabase
-      .from('ticket_transactions')
-      .select('*')
-      .eq('user_id', userId)
-      .order('created_at', { ascending: false });
-    
-    if (error) throw error;
-    
-    const balance = transactions
-      ? transactions.reduce((sum, t) => sum + t.amount, 0)
-      : 0;
-    
-    res.json({
-      balance,
-      transactions: transactions || []
     });
-    
+
   } catch (error) {
-    console.error('❌ Tickets error:', error);
-    res.status(500).json({ error: 'Failed to fetch tickets' });
+    console.error('❌ Login error:', error);
+    res.status(500).json({ error: 'Login failed' });
+  }
+});
+
+// ============================================================
+// GET /api/auth/verify-email?token=...
+// ============================================================
+router.get('/verify-email', async (req, res) => {
+  try {
+    const { token } = req.query;
+
+    console.log('📧 Email verification attempt with token:', token ? 'present' : 'missing');
+
+    if (!token) {
+      return res.status(400).json({ error: 'Verification token required' });
+    }
+
+    // Find user with this token
+    const { data: user, error } = await supabase
+      .from('users')
+      .select('*')
+      .eq('verification_token', token)
+      .single();
+
+    if (error || !user) {
+      console.log('❌ Invalid token');
+      return res.status(400).json({ error: 'Invalid or expired verification link' });
+    }
+
+    // Check if already verified
+    if (user.email_verified) {
+      console.log('✅ Email already verified:', user.email);
+      return res.json({ 
+        success: true, 
+        message: 'Email already verified!',
+        alreadyVerified: true
+      });
+    }
+
+    // Check if token expired
+    if (new Date(user.verification_token_expires) < new Date()) {
+      console.log('❌ Token expired');
+      return res.status(400).json({ error: 'Verification link expired. Please request a new one.' });
+    }
+
+    // Verify email
+    const { error: updateError } = await supabase
+      .from('users')
+      .update({
+        email_verified: true,
+        verification_token: null,
+        verification_token_expires: null
+      })
+      .eq('id', user.id);
+
+    if (updateError) {
+      console.error('❌ Update error:', updateError);
+      throw updateError;
+    }
+
+    console.log('✅ Email verified:', user.email);
+
+    res.json({
+      success: true,
+      message: 'Email verified successfully! You can now enter raffles.'
+    });
+
+  } catch (error) {
+    console.error('❌ Verify email error:', error);
+    res.status(500).json({ error: 'Verification failed' });
+  }
+});
+
+// ============================================================
+// POST /api/auth/resend-verification
+// ============================================================
+router.post('/resend-verification', async (req, res) => {
+  try {
+    const { email } = req.body;
+
+    console.log('📧 Resend verification request:', email);
+
+    // Find user
+    const { data: user, error } = await supabase
+      .from('users')
+      .select('*')
+      .eq('email', email.toLowerCase())
+      .single();
+
+    if (error || !user) {
+      // Don't reveal if email exists
+      return res.json({ success: true, message: 'If the email exists, verification link sent!' });
+    }
+
+    // Check if already verified
+    if (user.email_verified) {
+      return res.json({ success: true, message: 'Email already verified!' });
+    }
+
+    // Generate new token
+    const verificationToken = crypto.randomBytes(32).toString('hex');
+    const tokenExpires = new Date(Date.now() + 24 * 60 * 60 * 1000);
+
+    // Update user
+    await supabase
+      .from('users')
+      .update({
+        verification_token: verificationToken,
+        verification_token_expires: tokenExpires.toISOString()
+      })
+      .eq('id', user.id);
+
+    // Send email (log for now)
+    const verificationLink = `${FRONTEND_URL}/verify-email.html?token=${verificationToken}`;
+    console.log('📧 Resend verification to:', email);
+    console.log('Link:', verificationLink);
+
+    // TODO: Send actual email with Resend
+    // await sendVerificationEmail(user.email, verificationToken);
+
+    res.json({
+      success: true,
+      message: 'Verification email sent! Check your inbox.',
+      verificationLink: verificationLink // For testing - remove in production
+    });
+
+  } catch (error) {
+    console.error('❌ Resend verification error:', error);
+    res.status(500).json({ error: 'Failed to resend verification' });
   }
 });
 
