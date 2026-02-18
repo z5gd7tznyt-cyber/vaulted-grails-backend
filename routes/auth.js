@@ -110,16 +110,34 @@ router.post('/signup', async (req, res) => {
 // ============================================================
 router.post('/login', async (req, res) => {
   try {
-    const { email, password } = req.body;
+    const { email, password } = req.body; // Can be email OR username
 
     console.log('🔐 Login attempt:', email);
 
-    // Get user
-    const { data: user, error } = await supabase
+    // Try to find user by email OR username
+    let user;
+    let error;
+    
+    // First try email
+    const emailResult = await supabase
       .from('users')
       .select('id, email, username, subscription_status, password_hash, email_verified')
       .eq('email', email.toLowerCase())
       .single();
+    
+    if (emailResult.data) {
+      user = emailResult.data;
+    } else {
+      // Try username
+      const usernameResult = await supabase
+        .from('users')
+        .select('id, email, username, subscription_status, password_hash, email_verified')
+        .eq('username', email) // Using 'email' field but checking username
+        .single();
+      
+      user = usernameResult.data;
+      error = usernameResult.error;
+    }
 
     if (error || !user) {
       console.log('❌ User not found');
